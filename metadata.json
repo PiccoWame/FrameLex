@@ -1,0 +1,8 @@
+{
+  "name": "FrameLex",
+  "description": "See every pixel, speak every engine. A forensic visual prompt workbench that reverse-engineers any image into 8-layer modular anatomy, real pixel color palettes, and generator-ready prompts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

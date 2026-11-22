@@ -1,0 +1,345 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user account profile storing basic Google identity metadata and usage counters.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Authentication user ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name.",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address.",
+          "maxLength": 254
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "User avatar URL.",
+          "maxLength": 1000
+        },
+        "generationCount": {
+          "type": "number",
+          "description": "Total number of prompt generations recorded for this account."
+        },
+        "savedCount": {
+          "type": "number",
+          "description": "Total number of saved or updated prompt snapshots."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "photoURL",
+        "generationCount",
+        "savedCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SavedPromptRecord": {
+      "title": "SavedPromptRecord",
+      "description": "Saved image-to-prompt generation record including modular anatomy layers, dialects, color palette, and manual overrides.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Document identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Short descriptive title of the analyzed image.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "description": "Compressed data URL or asset path thumbnail.",
+          "maxLength": 150000
+        },
+        "aspectRatioLabel": {
+          "type": "string",
+          "description": "Detected aspect ratio label such as 16:9 or 4:3.",
+          "maxLength": 20
+        },
+        "dimensions": {
+          "type": "string",
+          "description": "Pixel dimensions string such as 1600 x 1200.",
+          "maxLength": 40
+        },
+        "activeDialect": {
+          "type": "string",
+          "enum": ["general", "midjourney", "flux", "sdxl", "video"],
+          "description": "Currently selected generator dialect.",
+          "maxLength": 20
+        },
+        "complexity": {
+          "type": "number",
+          "description": "Extraction complexity level from 1 to 10."
+        },
+        "focusBias": {
+          "type": "string",
+          "enum": ["full", "photography", "style", "composition"],
+          "description": "Analytical focus mode.",
+          "maxLength": 30
+        },
+        "activePrompt": {
+          "type": "string",
+          "description": "Active assembled, edited, or enhanced prompt text.",
+          "maxLength": 40000
+        },
+        "manualOverridePrompt": {
+          "type": "string",
+          "description": "Direct user-edited or AI-enhanced prompt override, or empty string when assembled from anatomy.",
+          "maxLength": 40000
+        },
+        "isCustomized": {
+          "type": "boolean",
+          "description": "Whether anatomy layers were manually customized."
+        },
+        "sourceType": {
+          "type": "string",
+          "enum": ["studio", "batch", "manual"],
+          "description": "Origin of this prompt generation.",
+          "maxLength": 20
+        },
+        "anatomy": {
+          "type": "object",
+          "description": "Eight modular prompt anatomy layers plus negative exclusions."
+        },
+        "enabledLayers": {
+          "type": "object",
+          "description": "Boolean toggle map for the eight anatomy layers."
+        },
+        "dialects": {
+          "type": "object",
+          "description": "All five generator-specific prompt variants."
+        },
+        "keywords": {
+          "type": "array",
+          "description": "AI-extracted visual descriptor tokens."
+        },
+        "extraKeywords": {
+          "type": "array",
+          "description": "User-selected modifier tokens."
+        },
+        "colorHexes": {
+          "type": "array",
+          "description": "Dominant hex swatch codes."
+        },
+        "colorPercentages": {
+          "type": "array",
+          "description": "Dominant swatch share percentages."
+        },
+        "mjOptions": {
+          "type": "object",
+          "description": "Midjourney parameter flags state."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "title",
+        "thumbnailUrl",
+        "aspectRatioLabel",
+        "dimensions",
+        "activeDialect",
+        "complexity",
+        "focusBias",
+        "activePrompt",
+        "manualOverridePrompt",
+        "isCustomized",
+        "sourceType",
+        "anatomy",
+        "enabledLayers",
+        "dialects",
+        "keywords",
+        "extraKeywords",
+        "colorHexes",
+        "colorPercentages",
+        "mjOptions",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ActivityEntry": {
+      "title": "ActivityEntry",
+      "description": "Immutable chronological event log tracking user prompt generations, enhancements, refinements, and edits.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Activity entry ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["analyzed", "batch_analyzed", "enhanced", "refined", "saved", "modified"],
+          "description": "Type of workbench activity.",
+          "maxLength": 30
+        },
+        "promptId": {
+          "type": "string",
+          "description": "Related SavedPromptRecord ID.",
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "description": "Prompt title at time of activity.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "dialect": {
+          "type": "string",
+          "enum": ["general", "midjourney", "flux", "sdxl", "video"],
+          "description": "Dialect active during the event.",
+          "maxLength": 20
+        },
+        "complexity": {
+          "type": "number",
+          "description": "Complexity setting at time of event."
+        },
+        "tokenCount": {
+          "type": "number",
+          "description": "Estimated prompt token count."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Human-readable event summary.",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server event timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "action",
+        "promptId",
+        "title",
+        "dialect",
+        "complexity",
+        "tokenCount",
+        "summary",
+        "createdAt"
+      ]
+    },
+    "UserApiKeyConfig": {
+      "title": "UserApiKeyConfig",
+      "description": "Private account-bounded personal Gemini API key settings exclusively readable and writable by the owning authenticated user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "usePersonalKey": {
+          "type": "boolean",
+          "description": "Whether requests for this login use the personal API key instead of workspace default."
+        },
+        "geminiApiKey": {
+          "type": "string",
+          "description": "User-supplied personal Gemini API key bound exclusively to this account.",
+          "maxLength": 256
+        },
+        "keyPreview": {
+          "type": "string",
+          "description": "Masked preview string of the stored API key.",
+          "maxLength": 32
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional user label for the personal API key.",
+          "maxLength": 80
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "userId",
+        "usePersonalKey",
+        "geminiApiKey",
+        "keyPreview",
+        "label",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profile document keyed by Firebase UID."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserApiKeyConfig" },
+      "description": "Strictly owner-only private account settings including personal API key configuration."
+    },
+    "/users/{userId}/prompts/{promptId}": {
+      "schema": { "$ref": "#/entities/SavedPromptRecord" },
+      "description": "Saved prompt generations and editable prompt versions owned by the user."
+    },
+    "/users/{userId}/activities/{activityId}": {
+      "schema": { "$ref": "#/entities/ActivityEntry" },
+      "description": "User generation and modification activity timeline."
+    }
+  }
+}

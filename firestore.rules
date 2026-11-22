@@ -1,0 +1,477 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core primitive helpers
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerifiedOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidDialect(dialect) {
+      return dialect is string && dialect in ['general', 'midjourney', 'flux', 'sdxl', 'video'];
+    }
+
+    function isValidFocusBias(bias) {
+      return bias is string && bias in ['full', 'photography', 'style', 'composition'];
+    }
+
+    function isValidSourceType(src) {
+      return src is string && src in ['studio', 'batch', 'manual'];
+    }
+
+    function isValidActivityAction(action) {
+      return action is string && action in ['analyzed', 'batch_analyzed', 'enhanced', 'refined', 'saved', 'modified'];
+    }
+
+    function isValidStringList(arr, maxItems, maxItemLen) {
+      return arr is list
+        && arr.size() <= maxItems
+        && (arr.size() == 0 || (arr[0] is string && arr[0].size() <= maxItemLen));
+    }
+
+    function isValidNumberList(arr, maxItems) {
+      return arr is list
+        && arr.size() <= maxItems
+        && (arr.size() == 0 || arr[0] is number);
+    }
+
+    function isValidAnatomyMap(anatomy) {
+      return anatomy is map
+        && anatomy.keys().hasAll([
+          'subject',
+          'spatialFields',
+          'environment',
+          'composition',
+          'lighting',
+          'colorHarmony',
+          'surfaceTraces',
+          'mediumStyle',
+          'negativePrompt'
+        ])
+        && anatomy.keys().hasOnly([
+          'subject',
+          'spatialFields',
+          'environment',
+          'composition',
+          'lighting',
+          'colorHarmony',
+          'surfaceTraces',
+          'mediumStyle',
+          'negativePrompt'
+        ])
+        && anatomy.subject is string && anatomy.subject.size() <= 8000
+        && anatomy.spatialFields is string && anatomy.spatialFields.size() <= 8000
+        && anatomy.environment is string && anatomy.environment.size() <= 8000
+        && anatomy.composition is string && anatomy.composition.size() <= 8000
+        && anatomy.lighting is string && anatomy.lighting.size() <= 8000
+        && anatomy.colorHarmony is string && anatomy.colorHarmony.size() <= 8000
+        && anatomy.surfaceTraces is string && anatomy.surfaceTraces.size() <= 8000
+        && anatomy.mediumStyle is string && anatomy.mediumStyle.size() <= 8000
+        && anatomy.negativePrompt is string && anatomy.negativePrompt.size() <= 8000;
+    }
+
+    function isValidEnabledLayersMap(layers) {
+      return layers is map
+        && layers.keys().hasAll([
+          'subject',
+          'spatialFields',
+          'environment',
+          'composition',
+          'lighting',
+          'colorHarmony',
+          'surfaceTraces',
+          'mediumStyle'
+        ])
+        && layers.keys().hasOnly([
+          'subject',
+          'spatialFields',
+          'environment',
+          'composition',
+          'lighting',
+          'colorHarmony',
+          'surfaceTraces',
+          'mediumStyle'
+        ])
+        && layers.subject is bool
+        && layers.spatialFields is bool
+        && layers.environment is bool
+        && layers.composition is bool
+        && layers.lighting is bool
+        && layers.colorHarmony is bool
+        && layers.surfaceTraces is bool
+        && layers.mediumStyle is bool;
+    }
+
+    function isValidDialectsMap(dialects) {
+      return dialects is map
+        && dialects.keys().hasAll(['general', 'midjourney', 'flux', 'sdxl', 'video'])
+        && dialects.keys().hasOnly(['general', 'midjourney', 'flux', 'sdxl', 'video'])
+        && dialects.general is string && dialects.general.size() <= 40000
+        && dialects.midjourney is string && dialects.midjourney.size() <= 40000
+        && dialects.flux is string && dialects.flux.size() <= 40000
+        && dialects.sdxl is string && dialects.sdxl.size() <= 40000
+        && dialects.video is string && dialects.video.size() <= 40000;
+    }
+
+    function isValidMjOptionsMap(mj) {
+      return mj is map
+        && mj.keys().hasAll(['includeAr', 'styleRaw', 'stylize', 'version', 'includeNo'])
+        && mj.keys().hasOnly(['includeAr', 'styleRaw', 'stylize', 'version', 'includeNo'])
+        && mj.includeAr is bool
+        && mj.styleRaw is bool
+        && mj.stylize is number && mj.stylize >= 0 && mj.stylize <= 1000
+        && mj.version is string && mj.version in ['7', '6.1']
+        && mj.includeNo is bool;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'displayName',
+          'email',
+          'photoURL',
+          'generationCount',
+          'savedCount',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'email',
+          'photoURL',
+          'generationCount',
+          'savedCount',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() <= 120
+        && data.email is string && data.email.size() <= 254
+        && data.photoURL is string && data.photoURL.size() <= 1000
+        && data.generationCount is number && data.generationCount >= 0 && data.generationCount <= 1000000
+        && data.savedCount is number && data.savedCount >= 0 && data.savedCount <= 1000000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSavedPrompt(data, userId, promptId) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'title',
+          'thumbnailUrl',
+          'aspectRatioLabel',
+          'dimensions',
+          'activeDialect',
+          'complexity',
+          'focusBias',
+          'activePrompt',
+          'manualOverridePrompt',
+          'isCustomized',
+          'sourceType',
+          'anatomy',
+          'enabledLayers',
+          'dialects',
+          'keywords',
+          'extraKeywords',
+          'colorHexes',
+          'colorPercentages',
+          'mjOptions',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'userId',
+          'title',
+          'thumbnailUrl',
+          'aspectRatioLabel',
+          'dimensions',
+          'activeDialect',
+          'complexity',
+          'focusBias',
+          'activePrompt',
+          'manualOverridePrompt',
+          'isCustomized',
+          'sourceType',
+          'anatomy',
+          'enabledLayers',
+          'dialects',
+          'keywords',
+          'extraKeywords',
+          'colorHexes',
+          'colorPercentages',
+          'mjOptions',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == promptId
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.thumbnailUrl is string && data.thumbnailUrl.size() <= 150000
+        && data.aspectRatioLabel is string && data.aspectRatioLabel.size() <= 20
+        && data.dimensions is string && data.dimensions.size() <= 40
+        && isValidDialect(data.activeDialect)
+        && data.complexity is number && data.complexity >= 1 && data.complexity <= 10
+        && isValidFocusBias(data.focusBias)
+        && data.activePrompt is string && data.activePrompt.size() <= 40000
+        && data.manualOverridePrompt is string && data.manualOverridePrompt.size() <= 40000
+        && data.isCustomized is bool
+        && isValidSourceType(data.sourceType)
+        && isValidAnatomyMap(data.anatomy)
+        && isValidEnabledLayersMap(data.enabledLayers)
+        && isValidDialectsMap(data.dialects)
+        && isValidStringList(data.keywords, 30, 120)
+        && isValidStringList(data.extraKeywords, 40, 120)
+        && isValidStringList(data.colorHexes, 10, 16)
+        && isValidNumberList(data.colorPercentages, 10)
+        && isValidMjOptionsMap(data.mjOptions)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidActivityEntry(data, userId, activityId) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'action',
+          'promptId',
+          'title',
+          'dialect',
+          'complexity',
+          'tokenCount',
+          'summary',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'userId',
+          'action',
+          'promptId',
+          'title',
+          'dialect',
+          'complexity',
+          'tokenCount',
+          'summary',
+          'createdAt'
+        ])
+        && isValidId(data.id)
+        && data.id == activityId
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && isValidActivityAction(data.action)
+        && data.promptId is string && data.promptId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && isValidDialect(data.dialect)
+        && data.complexity is number && data.complexity >= 1 && data.complexity <= 10
+        && data.tokenCount is number && data.tokenCount >= 0 && data.tokenCount <= 100000
+        && data.summary is string && data.summary.size() <= 500
+        && data.createdAt is timestamp;
+    }
+
+    function isValidUserApiKeyConfig(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'usePersonalKey',
+          'geminiApiKey',
+          'keyPreview',
+          'label',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId',
+          'usePersonalKey',
+          'geminiApiKey',
+          'keyPreview',
+          'label',
+          'updatedAt'
+        ])
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.usePersonalKey is bool
+        && data.geminiApiKey is string && data.geminiApiKey.size() <= 256
+        && data.keyPreview is string && data.keyPreview.size() <= 32
+        && data.label is string && data.label.size() <= 80
+        && data.updatedAt is timestamp;
+    }
+
+    // User profile (PII isolated strictly to owner)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isValidId(userId)
+        && isVerifiedOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(userId)
+        && isVerifiedOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
+          'email',
+          'photoURL',
+          'generationCount',
+          'savedCount',
+          'updatedAt'
+        ]);
+
+      allow delete: if isValidId(userId) && isVerifiedOwner(userId);
+
+      // Strictly private account-bounded personal API key configuration
+      match /private/{docId} {
+        allow get: if isValidId(userId)
+          && docId == 'apiKeyConfig'
+          && isVerifiedOwner(userId)
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow list: if false;
+
+        allow create: if isValidId(userId)
+          && docId == 'apiKeyConfig'
+          && isVerifiedOwner(userId)
+          && isValidUserApiKeyConfig(incoming(), userId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().updatedAt == request.time;
+
+        allow update: if isValidId(userId)
+          && docId == 'apiKeyConfig'
+          && isVerifiedOwner(userId)
+          && isValidUserApiKeyConfig(incoming(), userId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().userId == existing().userId
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'usePersonalKey',
+            'geminiApiKey',
+            'keyPreview',
+            'label',
+            'updatedAt'
+          ]);
+
+        allow delete: if isValidId(userId)
+          && docId == 'apiKeyConfig'
+          && isVerifiedOwner(userId)
+          && exists(/databases/$(database)/documents/users/$(userId));
+      }
+
+      // Saved prompt generations & editable snapshots
+      match /prompts/{promptId} {
+        allow get: if isValidId(userId)
+          && isValidId(promptId)
+          && isOwner(userId)
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow list: if isOwner(userId)
+          && resource.data.userId == request.auth.uid;
+
+        allow create: if isValidId(userId)
+          && isValidId(promptId)
+          && isVerifiedOwner(userId)
+          && isValidSavedPrompt(incoming(), userId, promptId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+
+        allow update: if isValidId(userId)
+          && isValidId(promptId)
+          && isVerifiedOwner(userId)
+          && isValidSavedPrompt(incoming(), userId, promptId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().sourceType == existing().sourceType
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'title',
+            'activeDialect',
+            'complexity',
+            'focusBias',
+            'activePrompt',
+            'manualOverridePrompt',
+            'isCustomized',
+            'anatomy',
+            'enabledLayers',
+            'dialects',
+            'keywords',
+            'extraKeywords',
+            'mjOptions',
+            'updatedAt'
+          ]);
+
+        allow delete: if isValidId(userId)
+          && isValidId(promptId)
+          && isVerifiedOwner(userId)
+          && exists(/databases/$(database)/documents/users/$(userId));
+      }
+
+      // Generation & editing activity timeline (append-only)
+      match /activities/{activityId} {
+        allow get: if isValidId(userId)
+          && isValidId(activityId)
+          && isOwner(userId)
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow list: if isOwner(userId)
+          && resource.data.userId == request.auth.uid;
+
+        allow create: if isValidId(userId)
+          && isValidId(activityId)
+          && isVerifiedOwner(userId)
+          && isValidActivityEntry(incoming(), userId, activityId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().createdAt == request.time;
+
+        allow update: if false;
+
+        allow delete: if isValidId(userId)
+          && isValidId(activityId)
+          && isVerifiedOwner(userId)
+          && exists(/databases/$(database)/documents/users/$(userId));
+      }
+    }
+  }
+}
