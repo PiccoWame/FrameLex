@@ -1,4 +1,3 @@
-import framelexLogoUrl from '../assets/images/framelex_logo_1795281368234.jpg';
 import compositionIconUrl from '../assets/images/anatomy_composition_1795281367817.jpg';
 import subjectIconUrl from '../assets/images/anatomy_subject_1795281368210.jpg';
 import spatialIconUrl from '../assets/images/anatomy_spatial_1795281369805.jpg';
@@ -9,7 +8,7 @@ import colorIconUrl from '../assets/images/anatomy_color_1795281368121.jpg';
 import mediumIconUrl from '../assets/images/anatomy_medium_1795281368598.jpg';
 import type { AnatomyLayerKey, PromptAnatomy } from '../types/prompt';
 
-export const FRAMELEX_LOGO_URL = framelexLogoUrl;
+export const FRAMELEX_LOGO_URL = '/assets/aistudio/img_fbe0d2ce.png';
 
 export type AnatomyLayerGroup =
   | 'Optics & Space'

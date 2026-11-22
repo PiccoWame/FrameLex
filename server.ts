@@ -37,33 +37,13 @@ function getFirebaseAdminAuth() {
   return getAuth(adminApp);
 }
 
-function getWorkspaceGeminiClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new HttpError(500, 'GEMINI_API_KEY is not configured in environment secrets.');
-  }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
-}
-
-async function resolveGeminiClient(
+async function verifyFirebaseBearer(
   req: express.Request
-): Promise<{ ai: GoogleGenAI; usingPersonalKey: boolean }> {
-  const rawPersonalKey = req.header('x-user-gemini-key')?.trim();
-  if (!rawPersonalKey) {
-    return { ai: getWorkspaceGeminiClient(), usingPersonalKey: false };
-  }
-
+): Promise<{ uid: string; email?: string }> {
   const authHeader = req.header('authorization') || '';
   const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!bearerMatch?.[1]) {
-    throw new HttpError(401, 'Sign in required to use a personal account API key.');
+    throw new HttpError(401, 'Sign in required. Please log in to use FrameLex.');
   }
 
   try {
@@ -71,9 +51,37 @@ async function resolveGeminiClient(
     if (!decoded.uid) {
       throw new HttpError(401, 'Authenticated account UID missing.');
     }
+    if (decoded.email_verified !== true) {
+      throw new HttpError(
+        403,
+        'Please verify your email address before running FrameLex AI tools.'
+      );
+    }
+    return { uid: decoded.uid, email: decoded.email };
   } catch (err) {
     if (err instanceof HttpError) throw err;
-    throw new HttpError(401, 'Invalid or expired sign-in session for personal API key.');
+    throw new HttpError(401, 'Invalid or expired sign-in session. Please sign in again.');
+  }
+}
+
+function maskApiKey(rawKey: string): string {
+  const trimmed = rawKey.trim();
+  if (!trimmed) return '';
+  if (trimmed.length <= 8) return '••••••••';
+  return `${trimmed.slice(0, 4)}••••${trimmed.slice(-4)}`;
+}
+
+async function resolveGeminiClient(
+  req: express.Request
+): Promise<{ ai: GoogleGenAI; uid: string; keyPreview: string }> {
+  const account = await verifyFirebaseBearer(req);
+
+  const rawPersonalKey = req.header('x-user-gemini-key')?.trim();
+  if (!rawPersonalKey) {
+    throw new HttpError(
+      403,
+      'A personal Gemini API key is required for your account. Enter and save your API key in Account Settings.'
+    );
   }
 
   if (
@@ -93,14 +101,12 @@ async function resolveGeminiClient(
         },
       },
     }),
-    usingPersonalKey: true,
+    uid: account.uid,
+    keyPreview: maskApiKey(rawPersonalKey),
   };
 }
 
-function mapGeminiError(
-  error: unknown,
-  usingPersonalKey = false
-): { status: number; message: string } {
+function mapGeminiError(error: unknown): { status: number; message: string } {
   if (error instanceof HttpError) {
     return { status: error.status, message: error.message };
   }
@@ -109,23 +115,22 @@ function mapGeminiError(
   if (msg.includes('API_KEY_INVALID') || err?.status === 400) {
     return {
       status: 400,
-      message: usingPersonalKey
-        ? 'Your personal account Gemini API key was rejected as invalid. Check it in Account Settings or switch back to the workspace key.'
-        : msg,
+      message:
+        'Your personal account Gemini API key was rejected as invalid. Check or update it in your Account & API Key settings.',
     };
   }
   if (msg.includes('PERMISSION_DENIED') || err?.status === 403) {
     return {
       status: 403,
-      message: usingPersonalKey
-        ? 'Your personal account Gemini API key lacks permission for this model. Verify billing/API access or switch back to the workspace key.'
-        : 'API key permission denied. Please verify GEMINI_API_KEY in Settings > Secrets.',
+      message:
+        'Your personal account Gemini API key lacks permission for this model. Verify billing or API access in Google AI Studio and update your key if needed.',
     };
   }
   if (msg.includes('RESOURCE_EXHAUSTED') || err?.status === 429) {
     return {
       status: 429,
-      message: 'Rate limit reached. Please wait a moment and try again.',
+      message:
+        'Your Gemini API key rate limit or quota was reached. Please wait a moment or check your quota in Google AI Studio.',
     };
   }
   return { status: err?.status && err.status >= 400 ? err.status : 500, message: msg };
@@ -244,6 +249,7 @@ app.get('/api/health', (_req, res) => {
 
 app.post('/api/fetch-image-url', async (req, res) => {
   try {
+    await verifyFirebaseBearer(req);
     const rawUrl = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
     if (!rawUrl || rawUrl.length > 2048) {
       res.status(400).json({ error: 'Please provide a valid image URL.' });
@@ -317,14 +323,8 @@ app.post('/api/fetch-image-url', async (req, res) => {
 });
 
 app.post('/api/verify-api-key', async (req, res) => {
-  let usingPersonalKey = false;
   try {
-    if (!req.header('x-user-gemini-key')?.trim()) {
-      res.status(400).json({ error: 'Please provide an API key to verify.' });
-      return;
-    }
     const resolved = await resolveGeminiClient(req);
-    usingPersonalKey = resolved.usingPersonalKey;
     await resolved.ai.models.generateContent({
       model: 'gemini-4-hydrogen',
       contents: 'Reply with OK.',
@@ -332,16 +332,16 @@ app.post('/api/verify-api-key', async (req, res) => {
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     });
-    res.json({ valid: true });
+    res.json({ valid: true, keyPreview: resolved.keyPreview });
   } catch (error) {
-    const mapped = mapGeminiError(error, usingPersonalKey);
+    const mapped = mapGeminiError(error);
     res.status(mapped.status).json({ error: mapped.message });
   }
 });
 
 app.post('/api/analyze-image', async (req, res) => {
-  let usingPersonalKey = false;
   try {
+    await verifyFirebaseBearer(req);
     const {
       imageBase64,
       mimeType,
@@ -373,7 +373,6 @@ app.post('/api/analyze-image', async (req, res) => {
     const clampedComplexity = Math.max(1, Math.min(10, rawComplexity));
 
     const resolved = await resolveGeminiClient(req);
-    usingPersonalKey = resolved.usingPersonalKey;
     const ai = resolved.ai;
 
     let complexityDirective = '';
@@ -547,14 +546,14 @@ Generate:
     const parsed = safeParseModelJson<Record<string, unknown>>(rawText);
     res.json(parsed);
   } catch (error) {
-    const mapped = mapGeminiError(error, usingPersonalKey);
+    const mapped = mapGeminiError(error);
     res.status(mapped.status).json({ error: mapped.message });
   }
 });
 
 app.post('/api/refine-prompt', async (req, res) => {
-  let usingPersonalKey = false;
   try {
+    await verifyFirebaseBearer(req);
     const {
       currentPrompt,
       dialect = 'general',
@@ -573,7 +572,6 @@ app.post('/api/refine-prompt', async (req, res) => {
     }
 
     const resolved = await resolveGeminiClient(req);
-    usingPersonalKey = resolved.usingPersonalKey;
     const ai = resolved.ai;
 
     const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
@@ -615,14 +613,14 @@ app.post('/api/refine-prompt', async (req, res) => {
     }
     res.json(safeParseModelJson<Record<string, unknown>>(rawText));
   } catch (error) {
-    const mapped = mapGeminiError(error, usingPersonalKey);
+    const mapped = mapGeminiError(error);
     res.status(mapped.status).json({ error: mapped.message });
   }
 });
 
 app.post('/api/enhance-prompt', async (req, res) => {
-  let usingPersonalKey = false;
   try {
+    await verifyFirebaseBearer(req);
     const {
       currentPrompt,
       dialect = 'general',
@@ -639,7 +637,6 @@ app.post('/api/enhance-prompt', async (req, res) => {
     }
 
     const resolved = await resolveGeminiClient(req);
-    usingPersonalKey = resolved.usingPersonalKey;
     const ai = resolved.ai;
 
     const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
@@ -712,14 +709,14 @@ Critical Guidelines:
     }
     res.json(safeParseModelJson<Record<string, unknown>>(rawText));
   } catch (error) {
-    const mapped = mapGeminiError(error, usingPersonalKey);
+    const mapped = mapGeminiError(error);
     res.status(mapped.status).json({ error: mapped.message });
   }
 });
 
 app.post('/api/suggest-variations', async (req, res) => {
-  let usingPersonalKey = false;
   try {
+    await verifyFirebaseBearer(req);
     const {
       currentPrompt,
       dialect = 'general',
@@ -740,7 +737,6 @@ app.post('/api/suggest-variations', async (req, res) => {
     }
 
     const resolved = await resolveGeminiClient(req);
-    usingPersonalKey = resolved.usingPersonalKey;
     const ai = resolved.ai;
 
     const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
@@ -875,7 +871,7 @@ Critical Rules:
 
     res.json({ variations });
   } catch (error) {
-    const mapped = mapGeminiError(error, usingPersonalKey);
+    const mapped = mapGeminiError(error);
     res.status(mapped.status).json({ error: mapped.message });
   }
 });

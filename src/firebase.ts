@@ -1,13 +1,26 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import {
+  getAuth,
+  GithubAuthProvider,
+  GoogleAuthProvider,
+  OAuthProvider,
+} from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export const githubProvider = new GithubAuthProvider();
+githubProvider.addScope('user:email');
+githubProvider.setCustomParameters({ allow_signup: 'true' });
+
+export const microsoftProvider = new OAuthProvider('microsoft.com');
+microsoftProvider.setCustomParameters({ prompt: 'select_account' });
 
 export enum OperationType {
   CREATE = 'create',

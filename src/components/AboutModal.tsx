@@ -77,20 +77,20 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
             <div className="p-4 bg-[#ECFDF5]/60 border border-emerald-200/80 rounded-xl space-y-1.5">
               <div className="flex items-center gap-2 text-xs font-semibold text-emerald-950">
                 <Sparkles className="w-4 h-4 text-emerald-700 shrink-0" />
-                <span>Guest-Ready &amp; Optional Sync</span>
+                <span>Private Account Workspace</span>
               </div>
               <p className="text-xs text-slate-700 leading-relaxed">
-                Start inspecting and generating immediately with automatic browser draft recovery. Sign in with Google whenever you want cloud prompt history, activity logs, and one-click Studio reload.
+                Sign in with Google, GitHub, Microsoft, Magic Link, or Email &amp; Password to access the Studio, persist saved prompts, and reload any past extraction in one click.
               </p>
             </div>
 
             <div className="p-4 bg-[#FFF4ED]/70 border border-amber-200/80 rounded-xl space-y-1.5">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-900">
                 <Lock className="w-4 h-4 text-amber-800 shrink-0" />
-                <span>Account-Bounded API Keys</span>
+                <span>Exclusive Personal API Keys</span>
               </div>
               <p className="text-xs text-slate-700 leading-relaxed">
-                Signed-in creators can optionally bind their own Gemini API key exclusively to their account session—verified on every request and never visible to guests or other users.
+                Each signed-in user enters and binds their own Gemini API key exclusively to their login—verified on every request and never shared with other users.
               </p>
             </div>
           </div>

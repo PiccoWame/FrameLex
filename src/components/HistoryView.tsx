@@ -174,15 +174,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
       </div>
 
-      {/* Optional Login Callout for Guest Users */}
       {authReady && !isCloudMode && (
         <div className="bg-[#F5F3FF]/75 border border-[#E2DFEE] rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">
-              Sign in to save prompts &amp; track generation activity
+              Sign in required to view your saved prompts
             </h2>
             <p className="text-xs text-slate-600 mt-0.5">
-              Logging in is optional—you can keep using the Studio directly. Sign in with Google whenever you want cloud history, activity tracking, and reload-and-modify access across sessions.
+              Sign in or create an account to access your private prompt archive, activity timeline, and reload-and-modify history.
             </p>
           </div>
           <button
@@ -191,7 +190,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             className="px-4 py-2 text-xs font-semibold text-white bg-indigo-700 hover:bg-indigo-800 rounded-lg transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
             <LogIn className="w-3.5 h-3.5" />
-            <span>Sign In / Create Login</span>
+            <span>Sign In</span>
           </button>
         </div>
       )}

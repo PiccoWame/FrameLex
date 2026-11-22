@@ -1,0 +1,39 @@
+{
+  "id": "/",
+  "name": "FrameLex — Visual Prompt Workbench",
+  "short_name": "FrameLex",
+  "description": "See every pixel, speak every engine. Reverse-engineer any image into structured 8-layer prompt anatomy, pixel color palettes, and generator-ready prompts.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#ECF5FE",
+  "background_color": "#ECF5FE",
+  "categories": ["design", "photo", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/appstore-icon-1024x1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

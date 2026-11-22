@@ -1,10 +1,19 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
+import {
+  isSignInWithEmailLink,
+  onAuthStateChanged,
+  signInWithEmailLink,
+  signOut,
+  type User,
+} from 'firebase/auth';
 import { Header, type AppView } from './components/Header';
+import { AccessGate } from './components/AccessGate';
 import { UploadDropzone } from './components/UploadDropzone';
 import { ImageInspector } from './components/ImageInspector';
 import { PromptWorkbench } from './components/PromptWorkbench';
+import { FRAMELEX_LOGO_URL } from './data/anatomyCatalog';
 import { auth } from './firebase';
+import { EMAIL_LINK_STORAGE_KEY } from './utils/authErrors';
 
 const BatchQueueView = lazy(() =>
   import('./components/BatchQueueView').then((m) => ({ default: m.BatchQueueView }))
@@ -125,70 +134,40 @@ const DEFAULT_MJ_OPTIONS: MidjourneyOptions = {
 
 export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [initialDraft] = useState<StudioDraft | null>(() => loadStudioDraft());
+  const activeUidRef = useRef<string | null>(null);
 
   const [activeView, setActiveView] = useState<AppView>('studio');
-  const [image, setImage] = useState<ImageMetadata | null>(
-    () => initialDraft?.image ?? null
-  );
-  const [colors, setColors] = useState<ColorSwatch[]>(
-    () => initialDraft?.colors ?? []
-  );
+  const [image, setImage] = useState<ImageMetadata | null>(null);
+  const [colors, setColors] = useState<ColorSwatch[]>([]);
 
-  const [dialect, setDialect] = useState<Dialect>(
-    () => initialDraft?.dialect ?? 'general'
-  );
-  const [complexity, setComplexity] = useState<number>(
-    () => initialDraft?.complexity ?? 8
-  );
-  const [lastAnalyzedComplexity, setLastAnalyzedComplexity] = useState<number | null>(
-    () => initialDraft?.lastAnalyzedComplexity ?? null
-  );
-  const [focusBias, setFocusBias] = useState<FocusBias>(
-    () => initialDraft?.focusBias ?? 'full'
-  );
-  const [customNotes, setCustomNotes] = useState<string>(
-    () => initialDraft?.customNotes ?? ''
-  );
+  const [dialect, setDialect] = useState<Dialect>('general');
+  const [complexity, setComplexity] = useState<number>(8);
+  const [lastAnalyzedComplexity, setLastAnalyzedComplexity] = useState<number | null>(null);
+  const [focusBias, setFocusBias] = useState<FocusBias>('full');
+  const [customNotes, setCustomNotes] = useState<string>('');
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [analysis, setAnalysis] = useState<AnalysisResponse | null>(
-    () => initialDraft?.analysis ?? null
-  );
+  const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
 
-  const [anatomy, setAnatomy] = useState<PromptAnatomy>(() =>
-    initialDraft ? normalizeAnatomy(initialDraft.anatomy) : DEFAULT_ANATOMY
-  );
-  const [enabledLayers, setEnabledLayers] = useState<Record<AnatomyLayerKey, boolean>>(
-    () =>
-      initialDraft?.enabledLayers
-        ? { ...DEFAULT_ENABLED_LAYERS, ...initialDraft.enabledLayers }
-        : DEFAULT_ENABLED_LAYERS
-  );
-  const [isAnatomyCustomized, setIsAnatomyCustomized] = useState<boolean>(
-    () => initialDraft?.isAnatomyCustomized ?? false
-  );
-  const [extraKeywords, setExtraKeywords] = useState<string[]>(
-    () => initialDraft?.extraKeywords ?? []
-  );
-  const [mjOptions, setMjOptions] = useState<MidjourneyOptions>(
-    () => initialDraft?.mjOptions ?? DEFAULT_MJ_OPTIONS
-  );
-  const [manualOverridePrompt, setManualOverridePrompt] = useState<string | null>(
-    () => initialDraft?.manualOverridePrompt ?? null
-  );
-  const [activeCloudPromptId, setActiveCloudPromptId] = useState<string | null>(
-    () => initialDraft?.activeCloudPromptId ?? null
-  );
+  const [anatomy, setAnatomy] = useState<PromptAnatomy>(DEFAULT_ANATOMY);
+  const [enabledLayers, setEnabledLayers] =
+    useState<Record<AnatomyLayerKey, boolean>>(DEFAULT_ENABLED_LAYERS);
+  const [isAnatomyCustomized, setIsAnatomyCustomized] = useState<boolean>(false);
+  const [extraKeywords, setExtraKeywords] = useState<string[]>([]);
+  const [mjOptions, setMjOptions] = useState<MidjourneyOptions>(DEFAULT_MJ_OPTIONS);
+  const [manualOverridePrompt, setManualOverridePrompt] = useState<string | null>(null);
+  const [activeCloudPromptId, setActiveCloudPromptId] = useState<string | null>(null);
   const [appliedTemplateId, setAppliedTemplateId] = useState<string | null>(null);
-  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number | null>(
-    () => initialDraft?.savedAt ?? null
-  );
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number | null>(null);
 
-  // Optional Firebase Auth & Cloud Sync State
+  // Firebase Auth, Personal Key Binding & Cloud Sync State
   const [user, setUser] = useState<User | null>(null);
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [pendingEmailLinkUrl, setPendingEmailLinkUrl] = useState<string | null>(null);
+  const [showAuthGate, setShowAuthGate] = useState(false);
+  const [authRedirectHint, setAuthRedirectHint] = useState<string | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
@@ -197,6 +176,7 @@ export default function App() {
   const [cloudPrompts, setCloudPrompts] = useState<CloudSavedPrompt[]>([]);
   const [cloudActivities, setCloudActivities] = useState<CloudActivityEntry[]>([]);
   const [apiKeyConfig, setApiKeyConfig] = useState<UserApiKeyConfig | null>(null);
+  const [apiKeyConfigLoaded, setApiKeyConfigLoaded] = useState(false);
   const [isSavingCloud, setIsSavingCloud] = useState(false);
   const [cloudSaveStatus, setCloudSaveStatus] = useState<string | null>(null);
 
@@ -216,29 +196,162 @@ export default function App() {
   const [batchQueue, setBatchQueue] = useState<BatchQueueItem[]>([]);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
 
-  // Listen to Firebase Auth state
+  const hasActivePersonalKey = Boolean(
+    user &&
+      isEmailVerified &&
+      apiKeyConfig?.usePersonalKey &&
+      apiKeyConfig.geminiApiKey &&
+      apiKeyConfig.geminiApiKey.trim().length >= 20
+  );
+  const isWorkspaceUnlocked = Boolean(
+    authReady && user && isEmailVerified && apiKeyConfigLoaded && hasActivePersonalKey
+  );
+  const isGuestStudioStart = Boolean(
+    authReady && !user && !showAuthGate && !pendingEmailLinkUrl
+  );
+
+  const redirectToAuthGate = useCallback((hint?: string) => {
+    setAuthRedirectHint(
+      hint ||
+        'Sign in or create a FrameLex account first to unlock Studio tools, upload images, and bind your personal Gemini API key.'
+    );
+    setShowAuthGate(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // Resolve canonical and OpenGraph URLs dynamically for search engines & social cards
+  useEffect(() => {
+    const currentUrl = window.location.origin + window.location.pathname;
+    let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement('link');
+      canonical.rel = 'canonical';
+      document.head.appendChild(canonical);
+    }
+    canonical.href = currentUrl;
+
+    let ogUrl = document.querySelector<HTMLMetaElement>('meta[property="og:url"]');
+    if (!ogUrl) {
+      ogUrl = document.createElement('meta');
+      ogUrl.setAttribute('property', 'og:url');
+      document.head.appendChild(ogUrl);
+    }
+    ogUrl.content = currentUrl;
+  }, []);
+
+  const resetStudioWorkspace = useCallback((draft: StudioDraft | null) => {
+    setImage(draft?.image ?? null);
+    setColors(draft?.colors ?? []);
+    setDialect(draft?.dialect ?? 'general');
+    setComplexity(draft?.complexity ?? 8);
+    setLastAnalyzedComplexity(draft?.lastAnalyzedComplexity ?? null);
+    setFocusBias(draft?.focusBias ?? 'full');
+    setCustomNotes(draft?.customNotes ?? '');
+    setAnalysis(draft?.analysis ?? null);
+    setAnatomy(draft ? normalizeAnatomy(draft.anatomy) : DEFAULT_ANATOMY);
+    setEnabledLayers(
+      draft?.enabledLayers
+        ? { ...DEFAULT_ENABLED_LAYERS, ...draft.enabledLayers }
+        : DEFAULT_ENABLED_LAYERS
+    );
+    setIsAnatomyCustomized(draft?.isAnatomyCustomized ?? false);
+    setExtraKeywords(draft?.extraKeywords ?? []);
+    setMjOptions(draft?.mjOptions ?? DEFAULT_MJ_OPTIONS);
+    setManualOverridePrompt(draft?.manualOverridePrompt ?? null);
+    setActiveCloudPromptId(draft?.activeCloudPromptId ?? null);
+    setLastAutoSavedAt(draft?.savedAt ?? null);
+    setAppliedTemplateId(null);
+    setAnalysisError(null);
+    setRefineSummary(null);
+    setRefineError(null);
+    setStylisticVariations([]);
+    setVariationsError(null);
+    setAppliedVariationId(null);
+    setCloudSaveStatus(null);
+    setBatchQueue([]);
+    setActiveView('studio');
+  }, []);
+
+  // Complete passwordless Magic Email Link sign-in when returning from inbox
+  useEffect(() => {
+    const href = window.location.href;
+    if (!isSignInWithEmailLink(auth, href)) return;
+
+    const storedEmail = window.localStorage.getItem(EMAIL_LINK_STORAGE_KEY);
+    if (!storedEmail) {
+      setPendingEmailLinkUrl(href);
+      return;
+    }
+
+    void signInWithEmailLink(auth, storedEmail, href)
+      .then(() => {
+        window.localStorage.removeItem(EMAIL_LINK_STORAGE_KEY);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setPendingEmailLinkUrl(null);
+      })
+      .catch(() => {
+        setPendingEmailLinkUrl(href);
+      });
+  }, []);
+
+  // Listen to Firebase Auth state and scope local studio draft strictly per user UID
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (nextUser) => {
+      const prevUid = activeUidRef.current;
+      const nextUid = nextUser?.uid ?? null;
+      activeUidRef.current = nextUid;
+
       setUser(nextUser);
+      setIsEmailVerified(Boolean(nextUser?.emailVerified));
       setAuthReady(true);
+
       if (nextUser) {
-        void ensureUserProfile(nextUser).catch((err) => {
-          console.error('Failed to sync user profile:', err);
-        });
+        setShowAuthGate(false);
+        setAuthRedirectHint(null);
+        if (prevUid !== nextUser.uid) {
+          setApiKeyConfig(null);
+          setApiKeyConfigLoaded(false);
+          resetStudioWorkspace(loadStudioDraft(nextUser.uid));
+        }
+        if (nextUser.emailVerified) {
+          void ensureUserProfile(nextUser).catch((err) => {
+            console.error('Failed to sync user profile:', err);
+          });
+        }
       } else {
+        setShowAuthGate(false);
+        setAuthRedirectHint(null);
         setCloudProfile(null);
         setCloudPrompts([]);
         setCloudActivities([]);
         setApiKeyConfig(null);
+        setApiKeyConfigLoaded(false);
         setAccountModalOpen(false);
+        resetStudioWorkspace(null);
       }
     });
     return () => unsub();
+  }, [resetStudioWorkspace]);
+
+  const handleRefreshVerification = useCallback(async (): Promise<boolean> => {
+    const current = auth.currentUser;
+    if (!current) return false;
+    await current.reload();
+    await current.getIdToken(true);
+    const verified = Boolean(current.emailVerified);
+    setIsEmailVerified(verified);
+    if (verified) {
+      setUser(auth.currentUser);
+      void ensureUserProfile(current).catch((err) => {
+        console.error('Failed to sync user profile:', err);
+      });
+    }
+    return verified;
   }, []);
 
   // Subscribe to user's Firestore profile, prompts, activity & private API key config
   useEffect(() => {
-    if (!authReady || !user) return;
+    if (!authReady || !user || !isEmailVerified) return;
 
     const handleSyncError = (err: Error) => {
       console.error('Cloud sync error:', err.message);
@@ -253,8 +366,14 @@ export default function App() {
     );
     const unsubApiKey = subscribeUserApiKeyConfig(
       user.uid,
-      setApiKeyConfig,
-      handleSyncError
+      (config) => {
+        setApiKeyConfig(config);
+        setApiKeyConfigLoaded(true);
+      },
+      (err) => {
+        setApiKeyConfigLoaded(true);
+        handleSyncError(err);
+      }
     );
 
     return () => {
@@ -263,19 +382,30 @@ export default function App() {
       unsubActivities();
       unsubApiKey();
     };
-  }, [authReady, user]);
+  }, [authReady, isEmailVerified, user]);
 
   const buildAiRequestHeaders = useCallback(async (): Promise<Record<string, string>> => {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (user && apiKeyConfig?.usePersonalKey && apiKeyConfig.geminiApiKey) {
-      const idToken = await user.getIdToken();
-      headers.Authorization = `Bearer ${idToken}`;
-      headers['x-user-gemini-key'] = apiKeyConfig.geminiApiKey;
+    if (!user) {
+      throw new Error('Please sign in to use FrameLex.');
     }
-    return headers;
-  }, [user, apiKeyConfig]);
+    if (!isEmailVerified) {
+      throw new Error('Please verify your email address before running AI tools.');
+    }
+    const personalKey = apiKeyConfig?.usePersonalKey
+      ? apiKeyConfig.geminiApiKey.trim()
+      : '';
+    if (!personalKey) {
+      throw new Error(
+        'A personal Gemini API key bound to your account is required. Enter your API key in Account Settings.'
+      );
+    }
+    const idToken = await user.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+      'x-user-gemini-key': personalKey,
+    };
+  }, [apiKeyConfig, isEmailVerified, user]);
 
   const draftSnapshotRef = useRef<Omit<StudioDraft, 'savedAt'>>({
     image,
@@ -332,6 +462,7 @@ export default function App() {
   ]);
 
   const persistCurrentDraft = useCallback(() => {
+    if (!user) return;
     const snap = draftSnapshotRef.current;
     const hasWorkToSave =
       snap.analysis !== null ||
@@ -340,14 +471,17 @@ export default function App() {
     if (!hasWorkToSave) return;
 
     const now = Date.now();
-    const ok = saveStudioDraft({
-      ...snap,
-      savedAt: now,
-    });
+    const ok = saveStudioDraft(
+      {
+        ...snap,
+        savedAt: now,
+      },
+      user.uid
+    );
     if (ok) {
       setLastAutoSavedAt(now);
     }
-  }, []);
+  }, [user]);
 
   // Periodic 5-second auto-save + page-unload safeguard
   useEffect(() => {
@@ -603,12 +737,20 @@ export default function App() {
 
   const handleUrlSubmit = useCallback(
     async (url: string) => {
+      if (!user) {
+        setUrlError('Please sign in to fetch remote images.');
+        return;
+      }
       setIsFetchingUrl(true);
       setUrlError(null);
       try {
+        const idToken = await user.getIdToken();
         const res = await fetch('/api/fetch-image-url', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
           body: JSON.stringify({ url }),
         });
         const payload = await res.json();
@@ -632,7 +774,7 @@ export default function App() {
         setIsFetchingUrl(false);
       }
     },
-    [loadIntoStudioAndAnalyze]
+    [loadIntoStudioAndAnalyze, user]
   );
 
   const handleSampleSelect = useCallback(
@@ -655,6 +797,7 @@ export default function App() {
 
   // Global Ctrl+V / Cmd+V image paste support
   useEffect(() => {
+    if (!isWorkspaceUnlocked && !isGuestStudioStart) return;
     const onPaste = (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -667,15 +810,20 @@ export default function App() {
       }
       if (pastedImages.length > 0) {
         e.preventDefault();
+        if (!user) {
+          redirectToAuthGate('Sign in or create an account to paste and analyze images.');
+          return;
+        }
         void handleFilesSelected(pastedImages);
       }
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [handleFilesSelected]);
+  }, [handleFilesSelected, isGuestStudioStart, isWorkspaceUnlocked, redirectToAuthGate, user]);
 
   // Ctrl+Enter / Cmd+Enter shortcut to extract / re-analyze in Studio
   useEffect(() => {
+    if (!isWorkspaceUnlocked) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         if (activeView === 'studio' && image?.base64 && !isAnalyzing) {
@@ -686,7 +834,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeView, colors, image, isAnalyzing, runAnalysisForImage]);
+  }, [activeView, colors, image, isAnalyzing, isWorkspaceUnlocked, runAnalysisForImage]);
 
   const { promptText: originalPrompt } = useMemo(
     () =>
@@ -1055,7 +1203,7 @@ export default function App() {
     if (!analysis) return;
     if (!user) {
       setAuthContextHint(
-        'Sign in with Google to save this prompt, preserve your custom anatomy edits, and access your generation history anytime.'
+        'Sign in or create an account to save this prompt, preserve your custom anatomy edits, and access your generation history anytime.'
       );
       setAuthModalOpen(true);
       return;
@@ -1422,8 +1570,41 @@ export default function App() {
     saveHistory([]);
   };
 
+  const handleGuestClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isGuestStudioStart) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    const interactive = target.closest(
+      'button, a, label, [role="button"], [role="tab"], input[type="button"], input[type="submit"], input[type="file"], input[type="checkbox"], input[type="range"], select'
+    );
+    if (interactive) {
+      e.preventDefault();
+      e.stopPropagation();
+      redirectToAuthGate();
+    }
+  };
+
+  const handleGuestSubmitCapture = (e: React.FormEvent<HTMLDivElement>) => {
+    if (!isGuestStudioStart) return;
+    e.preventDefault();
+    e.stopPropagation();
+    redirectToAuthGate();
+  };
+
+  const handleGuestDropCapture = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!isGuestStudioStart) return;
+    e.preventDefault();
+    e.stopPropagation();
+    redirectToAuthGate('Sign in or create an account first to upload or drop images.');
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#F6F5FA] text-slate-900">
+    <div
+      onClickCapture={handleGuestClickCapture}
+      onSubmitCapture={handleGuestSubmitCapture}
+      onDropCapture={handleGuestDropCapture}
+      className="min-h-screen flex flex-col bg-[#F6F5FA] text-slate-900"
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -1439,29 +1620,108 @@ export default function App() {
 
       <Header
         activeView={activeView}
-        onNavigate={setActiveView}
-        onTriggerUpload={() => fileInputRef.current?.click()}
+        onNavigate={(view) => {
+          if (!user) {
+            if (view === 'studio' && showAuthGate && !pendingEmailLinkUrl) {
+              setShowAuthGate(false);
+              setAuthRedirectHint(null);
+            } else {
+              redirectToAuthGate();
+            }
+            return;
+          }
+          setActiveView(view);
+        }}
+        onTriggerUpload={() => {
+          if (!user) {
+            redirectToAuthGate('Sign in or create an account first to upload images.');
+            return;
+          }
+          fileInputRef.current?.click();
+        }}
         user={user}
         authReady={authReady}
         profileDisplayName={cloudProfile?.displayName}
         savedCount={cloudProfile?.savedCount ?? cloudPrompts.length}
-        usingPersonalKey={Boolean(
-          user && apiKeyConfig?.usePersonalKey && apiKeyConfig?.geminiApiKey
-        )}
+        usingPersonalKey={hasActivePersonalKey}
         personalKeyPreview={apiKeyConfig?.keyPreview || null}
+        isWorkspaceUnlocked={isWorkspaceUnlocked}
+        showWorkspaceNav={isGuestStudioStart}
         onOpenAuthModal={() => {
-          setAuthContextHint(null);
-          setAuthModalOpen(true);
+          redirectToAuthGate();
         }}
         onOpenAccountModal={() => setAccountModalOpen(true)}
-        onOpenAboutModal={() => setAboutModalOpen(true)}
+        onOpenAboutModal={() => {
+          if (!user) {
+            redirectToAuthGate();
+            return;
+          }
+          setAboutModalOpen(true);
+        }}
         onSignOut={() => {
           void signOut(auth);
         }}
       />
 
       <main className="flex-1 max-w-[1360px] w-full mx-auto px-6 py-8">
-        {activeView === 'studio' && (
+        {!authReady ? (
+          <div className="max-w-md mx-auto py-16 text-center space-y-3">
+            <img
+              src={FRAMELEX_LOGO_URL}
+              alt="FrameLex icon"
+              referrerPolicy="no-referrer"
+              className="w-12 h-12 rounded-2xl object-cover border border-[#D8E0FC] mx-auto shadow-2xs"
+            />
+            <div className="w-6 h-6 rounded-full border-2 border-indigo-700 border-t-transparent animate-spin mx-auto" />
+            <p className="text-xs font-medium text-slate-600">
+              Checking your sign-in session...
+            </p>
+          </div>
+        ) : !user && (showAuthGate || pendingEmailLinkUrl) ? (
+          <AccessGate
+            mode="signin"
+            user={null}
+            redirectHint={authRedirectHint}
+            pendingEmailLinkUrl={pendingEmailLinkUrl}
+            onClearPendingEmailLink={() => setPendingEmailLinkUrl(null)}
+            onBackToStudio={() => {
+              setShowAuthGate(false);
+              setAuthRedirectHint(null);
+            }}
+          />
+        ) : user && !isEmailVerified ? (
+          <AccessGate
+            mode="verify"
+            user={user}
+            onRefreshVerification={handleRefreshVerification}
+            onSignOut={() => {
+              void signOut(auth);
+            }}
+          />
+        ) : user && !apiKeyConfigLoaded ? (
+          <div className="max-w-md mx-auto py-16 text-center space-y-3">
+            <img
+              src={FRAMELEX_LOGO_URL}
+              alt="FrameLex icon"
+              referrerPolicy="no-referrer"
+              className="w-12 h-12 rounded-2xl object-cover border border-[#D8E0FC] mx-auto shadow-2xs"
+            />
+            <div className="w-6 h-6 rounded-full border-2 border-indigo-700 border-t-transparent animate-spin mx-auto" />
+            <p className="text-xs font-medium text-slate-600">
+              Loading your private account configuration...
+            </p>
+          </div>
+        ) : user && !hasActivePersonalKey ? (
+          <AccessGate
+            mode="apikey"
+            user={user}
+            onSignOut={() => {
+              void signOut(auth);
+            }}
+          />
+        ) : (
+          <>
+            {(activeView === 'studio' || isGuestStudioStart) && (
           <div className="space-y-6">
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-5">
               <div className="max-w-2xl">
@@ -1532,7 +1792,7 @@ export default function App() {
                       setIsAnatomyCustomized(false);
                       setExtraKeywords([]);
                       setLastAutoSavedAt(null);
-                      clearStudioDraft();
+                      clearStudioDraft(user?.uid);
                     }}
                   />
                 ) : (
@@ -1608,7 +1868,7 @@ export default function App() {
           </div>
         )}
 
-        {activeView === 'batch' && (
+        {isWorkspaceUnlocked && activeView === 'batch' && (
           <Suspense
             fallback={
               <div className="bg-white border border-[#E2DFEE] rounded-xl p-10 text-center text-xs text-slate-500">
@@ -1651,7 +1911,7 @@ export default function App() {
           </Suspense>
         )}
 
-        {activeView === 'history' && (
+        {isWorkspaceUnlocked && activeView === 'history' && (
           <Suspense
             fallback={
               <div className="bg-white border border-[#E2DFEE] rounded-xl p-10 text-center text-xs text-slate-500">
@@ -1679,7 +1939,7 @@ export default function App() {
           </Suspense>
         )}
 
-        {activeView === 'dialects' && (
+        {isWorkspaceUnlocked && activeView === 'dialects' && (
           <Suspense
             fallback={
               <div className="bg-white border border-[#E2DFEE] rounded-xl p-10 text-center text-xs text-slate-500">
@@ -1694,6 +1954,8 @@ export default function App() {
               }}
             />
           </Suspense>
+            )}
+          </>
         )}
       </main>
 
@@ -1735,9 +1997,17 @@ export default function App() {
 
       <footer className="border-t border-[#E2DFEE] bg-white">
         <div className="max-w-[1360px] mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-600">
-          <span>
-            <strong className="font-semibold text-slate-900">FrameLex</strong> · Visual Prompt Workbench ·{' '}
-            <span className="text-indigo-800">See every pixel, speak every engine.</span>
+          <span className="inline-flex items-center gap-2">
+            <img
+              src={FRAMELEX_LOGO_URL}
+              alt="FrameLex icon"
+              referrerPolicy="no-referrer"
+              className="w-5 h-5 rounded-md object-cover border border-[#D8E0FC] shrink-0"
+            />
+            <span>
+              <strong className="font-semibold text-slate-900">FrameLex</strong> · Visual Prompt Workbench ·{' '}
+              <span className="text-indigo-800">See every pixel, speak every engine.</span>
+            </span>
           </span>
           <div className="flex flex-wrap items-center gap-5">
             <button
@@ -1747,29 +2017,31 @@ export default function App() {
             >
               App Info &amp; Shortcuts
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveView('dialects')}
-              className="hover:text-indigo-900 transition-colors"
-            >
-              Dialect Reference
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveView('batch')}
-              className="hover:text-indigo-900 transition-colors"
-            >
-              Batch Queue
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveView('history')}
-              className="hover:text-indigo-900 transition-colors"
-            >
-              {user
-                ? `Saved Prompts (${cloudPrompts.length})`
-                : `Saved Archive (${history.length})`}
-            </button>
+            {(isWorkspaceUnlocked || isGuestStudioStart) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveView('dialects')}
+                  className="hover:text-indigo-900 transition-colors"
+                >
+                  Dialect Reference
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveView('batch')}
+                  className="hover:text-indigo-900 transition-colors"
+                >
+                  Batch Queue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveView('history')}
+                  className="hover:text-indigo-900 transition-colors"
+                >
+                  {`Saved Prompts (${cloudPrompts.length})`}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </footer>

@@ -1,11 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import type { User } from 'firebase/auth';
+import {
+  EmailAuthProvider,
+  linkWithCredential,
+  linkWithPopup,
+  type AuthProvider,
+  type User,
+} from 'firebase/auth';
 import {
   Check,
   Eye,
   EyeOff,
   History,
   KeyRound,
+  Link2,
   LogOut,
   ShieldCheck,
   Trash2,
@@ -13,12 +20,22 @@ import {
   X,
 } from 'lucide-react';
 import type { CloudUserProfile, UserApiKeyConfig } from '../types/prompt';
+import { FRAMELEX_LOGO_URL } from '../data/anatomyCatalog';
+import {
+  githubProvider,
+  googleProvider,
+  microsoftProvider,
+} from '../firebase';
 import {
   deleteUserApiKeyConfig,
   maskApiKey,
   saveUserApiKeyConfig,
   updateUserDisplayName,
 } from '../services/firestoreService';
+import {
+  formatFirebaseAuthError,
+  getProviderDisplayName,
+} from '../utils/authErrors';
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -50,7 +67,6 @@ export const AccountModal: React.FC<AccountModalProps> = ({
 
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [keyLabelInput, setKeyLabelInput] = useState('');
-  const [usePersonalKey, setUsePersonalKey] = useState(false);
   const [showKey, setShowKey] = useState(false);
 
   const [isVerifyingKey, setIsVerifyingKey] = useState(false);
@@ -59,6 +75,13 @@ export const AccountModal: React.FC<AccountModalProps> = ({
   const [keyNotice, setKeyNotice] = useState<string | null>(null);
   const [keyError, setKeyError] = useState<string | null>(null);
 
+  const [linkingProvider, setLinkingProvider] = useState<string | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [showAddPassword, setShowAddPassword] = useState(false);
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [, setProviderRefreshTick] = useState(0);
+
   useEffect(() => {
     if (!isOpen || !user) return;
     setDisplayNameInput(
@@ -66,11 +89,14 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     );
     setApiKeyInput(apiKeyConfig?.geminiApiKey || '');
     setKeyLabelInput(apiKeyConfig?.label || 'Personal Gemini Key');
-    setUsePersonalKey(Boolean(apiKeyConfig?.usePersonalKey && apiKeyConfig?.geminiApiKey));
     setProfileNotice(null);
     setProfileError(null);
     setKeyNotice(null);
     setKeyError(null);
+    setLinkNotice(null);
+    setLinkError(null);
+    setNewPasswordInput('');
+    setShowAddPassword(false);
     setShowKey(false);
   }, [isOpen, user, cloudProfile, apiKeyConfig]);
 
@@ -166,22 +192,39 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     setKeyError(null);
     const trimmedKey = apiKeyInput.trim();
 
-    if (usePersonalKey && (trimmedKey.length < 20 || /\s/.test(trimmedKey))) {
-      setKeyError('Enter a valid Gemini API key (at least 20 characters, no spaces) to enable Personal Key mode.');
+    if (trimmedKey.length < 20 || /\s/.test(trimmedKey)) {
+      setKeyError(
+        'Enter a valid Gemini API key (at least 20 characters, no spaces).'
+      );
       return;
     }
 
     setIsSavingKey(true);
     try {
+      const idToken = await user.getIdToken();
+      const verifyRes = await fetch('/api/verify-api-key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+          'x-user-gemini-key': trimmedKey,
+        },
+        body: JSON.stringify({}),
+      });
+      const verifyPayload = await verifyRes.json();
+      if (!verifyRes.ok) {
+        throw new Error(
+          verifyPayload?.error || 'Could not verify this Gemini API key.'
+        );
+      }
+
       await saveUserApiKeyConfig(user, {
         geminiApiKey: trimmedKey,
-        usePersonalKey: Boolean(usePersonalKey && trimmedKey),
+        usePersonalKey: true,
         label: keyLabelInput || 'Personal Gemini Key',
       });
       setKeyNotice(
-        usePersonalKey && trimmedKey
-          ? 'Personal API key saved and bound exclusively to your account.'
-          : 'API key settings updated (Workspace Default mode active).'
+        `Verified and bound personal API key (${verifyPayload.keyPreview || maskApiKey(trimmedKey)}) exclusively to ${user.email}.`
       );
     } catch (err) {
       setKeyError(
@@ -200,14 +243,65 @@ export const AccountModal: React.FC<AccountModalProps> = ({
       await deleteUserApiKeyConfig(user.uid);
       setApiKeyInput('');
       setKeyLabelInput('Personal Gemini Key');
-      setUsePersonalKey(false);
-      setKeyNotice('Personal API key removed. Your account now uses the Workspace Default key.');
+      setKeyNotice(
+        'Personal API key removed. Enter a new personal Gemini API key to continue using FrameLex.'
+      );
     } catch (err) {
       setKeyError(
         err instanceof Error ? err.message : 'Could not remove personal API key.'
       );
     } finally {
       setIsDeletingKey(false);
+    }
+  };
+
+  const linkedProviderIds = new Set(user.providerData.map((p) => p.providerId));
+
+  const handleLinkOAuth = async (
+    provider: AuthProvider,
+    providerKey: string,
+    label: string
+  ) => {
+    setLinkNotice(null);
+    setLinkError(null);
+    setLinkingProvider(providerKey);
+    try {
+      await linkWithPopup(user, provider);
+      await user.reload();
+      setProviderRefreshTick((v) => v + 1);
+      setLinkNotice(`${label} is now linked to your FrameLex account.`);
+    } catch (err) {
+      setLinkError(formatFirebaseAuthError(err, label));
+    } finally {
+      setLinkingProvider(null);
+    }
+  };
+
+  const handleLinkPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user.email) {
+      setLinkError('An email address is required on your account before adding a password.');
+      return;
+    }
+    if (newPasswordInput.length < 6) {
+      setLinkError('Choose a password with at least 6 characters.');
+      return;
+    }
+    setLinkNotice(null);
+    setLinkError(null);
+    setLinkingProvider('password');
+    try {
+      const cred = EmailAuthProvider.credential(user.email, newPasswordInput);
+      await linkWithCredential(user, cred);
+      await user.reload();
+      setProviderRefreshTick((v) => v + 1);
+      setNewPasswordInput('');
+      setShowAddPassword(false);
+      setLinkNotice('Email & Password login is now linked to your FrameLex account.');
+    } catch (err) {
+      setLinkError(formatFirebaseAuthError(err, 'Email & Password'));
+    } finally {
+      setLinkingProvider(null);
     }
   };
 
@@ -234,13 +328,21 @@ export const AccountModal: React.FC<AccountModalProps> = ({
               </span>
             )}
             <div className="min-w-0">
-              <h2
-                id="account-modal-title"
-                className="font-display text-lg font-bold text-slate-900 truncate"
-              >
-                Account &amp; Personal API Key
-              </h2>
-              <p className="text-xs text-slate-600 truncate">
+              <div className="flex items-center gap-2">
+                <img
+                  src={FRAMELEX_LOGO_URL}
+                  alt="FrameLex icon"
+                  referrerPolicy="no-referrer"
+                  className="w-5 h-5 rounded-md object-cover border border-[#D8D3EB] shrink-0"
+                />
+                <h2
+                  id="account-modal-title"
+                  className="font-display text-lg font-bold text-slate-900 truncate"
+                >
+                  FrameLex Account &amp; Personal API Key
+                </h2>
+              </div>
+              <p className="text-xs text-slate-600 truncate mt-0.5">
                 Signed in as {user.email}
               </p>
             </div>
@@ -347,7 +449,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                   </h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Optionally use your own Gemini API key exclusively for your signed-in account. When disabled or unset, FrameLex uses the workspace key.
+                  Required for all FrameLex AI extractions, enhancements, and stylistic variations. Your key is bound exclusively to your signed-in account and is never shared.
                 </p>
               </div>
 
@@ -355,12 +457,12 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                 className={`px-2.5 py-1 text-[11px] font-semibold rounded-md border whitespace-nowrap ${
                   isPersonalKeyActive
                     ? 'bg-[#ECFDF5] text-emerald-800 border-emerald-200'
-                    : 'bg-[#F7F6FB] text-slate-700 border-[#E2DFEE]'
+                    : 'bg-[#FFF1F2] text-rose-800 border-rose-200'
                 }`}
               >
                 {isPersonalKeyActive
                   ? `Personal Key (${apiKeyConfig?.keyPreview || 'Active'})`
-                  : 'Workspace Default Key'}
+                  : 'No API Key Bound'}
               </span>
             </div>
 
@@ -417,22 +519,14 @@ export const AccountModal: React.FC<AccountModalProps> = ({
               </div>
             </div>
 
-            <label className="flex items-start gap-2.5 p-3 bg-[#F7F6FB] border border-[#E2DFEE] rounded-lg cursor-pointer">
-              <input
-                type="checkbox"
-                checked={usePersonalKey}
-                onChange={(e) => setUsePersonalKey(e.target.checked)}
-                className="w-4 h-4 mt-0.5 rounded border-slate-300 text-indigo-700 focus:ring-indigo-700"
-              />
-              <div>
-                <div className="text-xs font-semibold text-slate-900">
-                  Route my Gemini requests through this personal key
-                </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  Isolated to your authenticated UID. Requests attach your verified session token and are never shared with guests or other users.
-                </div>
+            <div className="p-3 bg-[#F7F6FB] border border-[#E2DFEE] rounded-lg">
+              <div className="text-xs font-semibold text-slate-900">
+                Exclusive Per-Account Key Binding
               </div>
-            </label>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                Isolated strictly to your authenticated UID ({user.email}). Every AI request verifies your session token and uses only your own personal key.
+              </div>
+            </div>
 
             {keyNotice && (
               <div className="p-2.5 bg-[#ECFDF5] border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">
@@ -463,10 +557,10 @@ export const AccountModal: React.FC<AccountModalProps> = ({
 
                 <button
                   type="submit"
-                  disabled={isSavingKey}
+                  disabled={isSavingKey || !apiKeyInput.trim()}
                   className="px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 rounded-lg transition-colors"
                 >
-                  {isSavingKey ? 'Saving...' : 'Save Key Settings'}
+                  {isSavingKey ? 'Verifying & Saving...' : 'Verify & Save Key'}
                 </button>
               </div>
 
@@ -483,6 +577,128 @@ export const AccountModal: React.FC<AccountModalProps> = ({
               )}
             </div>
           </form>
+
+          {/* Connected Sign-In Methods */}
+          <div className="p-4 border border-[#E2DFEE] rounded-xl space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-indigo-700" />
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Connected Sign-In Methods
+                </h3>
+              </div>
+              <span
+                className={`px-2 py-0.5 text-[11px] font-semibold rounded-md border ${
+                  user.emailVerified
+                    ? 'bg-[#ECFDF5] text-emerald-800 border-emerald-200'
+                    : 'bg-[#FFF4ED] text-amber-900 border-[#F5DFD0]'
+                }`}
+              >
+                {user.emailVerified ? 'Verified Email' : 'Verification Pending'}
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Link multiple logins to sign into the same FrameLex prompt library and personal Gemini API key from any method.
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              {user.providerData.map((p) => (
+                <span
+                  key={p.providerId}
+                  className="px-2.5 py-1 text-xs font-medium text-indigo-950 bg-[#EEF2FF] border border-[#D8E0FC] rounded-lg inline-flex items-center gap-1.5"
+                >
+                  <Check className="w-3 h-3 text-emerald-700" />
+                  <span>{getProviderDisplayName(p.providerId)}</span>
+                </span>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {!linkedProviderIds.has('google.com') && (
+                <button
+                  type="button"
+                  disabled={linkingProvider !== null}
+                  onClick={() => handleLinkOAuth(googleProvider, 'google', 'Google')}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-800 bg-[#F7F6FB] hover:bg-[#EEF2FF] border border-[#E2DFEE] rounded-lg transition-colors"
+                >
+                  {linkingProvider === 'google' ? 'Linking Google...' : '+ Link Google'}
+                </button>
+              )}
+              {!linkedProviderIds.has('github.com') && (
+                <button
+                  type="button"
+                  disabled={linkingProvider !== null}
+                  onClick={() => handleLinkOAuth(githubProvider, 'github', 'GitHub')}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-800 bg-[#F7F6FB] hover:bg-[#EEF2FF] border border-[#E2DFEE] rounded-lg transition-colors"
+                >
+                  {linkingProvider === 'github' ? 'Linking GitHub...' : '+ Link GitHub'}
+                </button>
+              )}
+              {!linkedProviderIds.has('microsoft.com') && (
+                <button
+                  type="button"
+                  disabled={linkingProvider !== null}
+                  onClick={() => handleLinkOAuth(microsoftProvider, 'microsoft', 'Microsoft')}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-800 bg-[#F7F6FB] hover:bg-[#EEF2FF] border border-[#E2DFEE] rounded-lg transition-colors"
+                >
+                  {linkingProvider === 'microsoft'
+                    ? 'Linking Microsoft...'
+                    : '+ Link Microsoft'}
+                </button>
+              )}
+              {!linkedProviderIds.has('password') && user.email && (
+                <button
+                  type="button"
+                  disabled={linkingProvider !== null}
+                  onClick={() => setShowAddPassword((v) => !v)}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-800 bg-[#F7F6FB] hover:bg-[#EEF2FF] border border-[#E2DFEE] rounded-lg transition-colors"
+                >
+                  {showAddPassword ? 'Cancel Password' : '+ Add Password Login'}
+                </button>
+              )}
+            </div>
+
+            {showAddPassword && !linkedProviderIds.has('password') && (
+              <form
+                onSubmit={handleLinkPassword}
+                className="flex flex-col sm:flex-row gap-2 pt-1"
+              >
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={newPasswordInput}
+                  onChange={(e) => setNewPasswordInput(e.target.value)}
+                  placeholder="New password (6+ chars)"
+                  className="flex-1 px-3 py-2 text-xs bg-white border border-[#E2DFEE] rounded-lg text-slate-900 focus:outline-none focus:border-indigo-700"
+                />
+                <button
+                  type="submit"
+                  disabled={linkingProvider !== null}
+                  className="px-3.5 py-2 text-xs font-semibold text-white bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
+                >
+                  {linkingProvider === 'password' ? 'Saving...' : 'Save Password'}
+                </button>
+              </form>
+            )}
+
+            {linkNotice && (
+              <div className="p-2.5 bg-[#ECFDF5] border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">
+                <Check className="w-3.5 h-3.5 shrink-0" />
+                <span>{linkNotice}</span>
+              </div>
+            )}
+            {linkError && (
+              <div
+                role="alert"
+                className="p-2.5 bg-[#FFF1F2] border border-rose-200 rounded-lg text-xs text-rose-800"
+              >
+                {linkError}
+              </div>
+            )}
+          </div>
 
           {/* Footer Quick Actions */}
           <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">

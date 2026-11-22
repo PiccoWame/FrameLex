@@ -15,6 +15,8 @@ interface HeaderProps {
   savedCount: number;
   usingPersonalKey?: boolean;
   personalKeyPreview?: string | null;
+  isWorkspaceUnlocked?: boolean;
+  showWorkspaceNav?: boolean;
   onOpenAuthModal: () => void;
   onOpenAccountModal: () => void;
   onOpenAboutModal: () => void;
@@ -38,6 +40,8 @@ export const Header: React.FC<HeaderProps> = ({
   savedCount,
   usingPersonalKey = false,
   personalKeyPreview,
+  isWorkspaceUnlocked = false,
+  showWorkspaceNav = false,
   onOpenAuthModal,
   onOpenAccountModal,
   onOpenAboutModal,
@@ -86,28 +90,30 @@ export const Header: React.FC<HeaderProps> = ({
           <span>FrameLex</span>
         </button>
 
-        <nav
-          aria-label="Primary"
-          className="hidden md:flex items-center gap-7 text-sm font-medium"
-        >
-          {NAV_ITEMS.map((item) => {
-            const isActive = activeView === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onNavigate(item.id)}
-                className={`py-1 whitespace-nowrap shrink-0 transition-colors border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
-                  isActive
-                    ? 'text-slate-900 border-indigo-700 font-semibold'
-                    : 'text-slate-600 border-transparent hover:text-slate-900 hover:border-slate-300'
-                }`}
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
+        {(isWorkspaceUnlocked || showWorkspaceNav) && (
+          <nav
+            aria-label="Primary"
+            className="hidden md:flex items-center gap-7 text-sm font-medium"
+          >
+            {NAV_ITEMS.map((item) => {
+              const isActive = activeView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onNavigate(item.id)}
+                  className={`py-1 whitespace-nowrap shrink-0 transition-colors border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                    isActive
+                      ? 'text-slate-900 border-indigo-700 font-semibold'
+                      : 'text-slate-600 border-transparent hover:text-slate-900 hover:border-slate-300'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+        )}
 
         <div className="flex items-center gap-2.5 shrink-0">
           <button
@@ -127,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="px-3 py-2 text-xs font-medium text-slate-800 bg-[#F5F3FF] border border-[#E2DFEE] hover:border-indigo-300 hover:text-slate-900 rounded-lg transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
             >
               <LogIn className="w-3.5 h-3.5 text-indigo-700" />
-              <span>Sign In</span>
+              <span>Sign In / Sign Up</span>
             </button>
           )}
 
@@ -140,7 +146,7 @@ export const Header: React.FC<HeaderProps> = ({
                 title={
                   usingPersonalKey
                     ? `Signed in · Personal key active (${personalKeyPreview || 'configured'})`
-                    : 'Signed in · Workspace default key'
+                    : 'Signed in · Personal API key required'
                 }
                 className="px-2.5 py-1.5 text-xs font-medium text-slate-900 bg-[#F5F3FF] border border-[#E2DFEE] hover:border-indigo-300 rounded-lg transition-colors inline-flex items-center gap-2 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
               >
@@ -192,23 +198,25 @@ export const Header: React.FC<HeaderProps> = ({
                     </span>
                     <span
                       className={`text-[11px] font-medium ${
-                        usingPersonalKey ? 'text-emerald-700' : 'text-slate-500'
+                        usingPersonalKey ? 'text-emerald-700' : 'text-rose-700'
                       }`}
                     >
-                      {usingPersonalKey ? 'Personal' : 'Default'}
+                      {usingPersonalKey ? 'Key Bound' : 'Required'}
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onNavigate('history');
-                    }}
-                    className="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-[#F5F3FF] flex items-center gap-2"
-                  >
-                    <History className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Saved Prompts &amp; Activity</span>
-                  </button>
+                  {isWorkspaceUnlocked && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onNavigate('history');
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-[#F5F3FF] flex items-center gap-2"
+                    >
+                      <History className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Saved Prompts &amp; Activity</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -225,39 +233,43 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={onTriggerUpload}
-            className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-indigo-950 rounded-lg transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
-          >
-            Upload Image
-          </button>
+          {(isWorkspaceUnlocked || showWorkspaceNav) && (
+            <button
+              type="button"
+              onClick={onTriggerUpload}
+              className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-indigo-950 rounded-lg transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+            >
+              Upload Image
+            </button>
+          )}
         </div>
       </div>
 
       {/* Mobile navigation strip */}
-      <nav
-        aria-label="Mobile Primary"
-        className="flex md:hidden items-center gap-5 px-6 py-2 border-t border-[#ECEAF6] overflow-x-auto text-xs font-medium"
-      >
-        {NAV_ITEMS.map((item) => {
-          const isActive = activeView === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onNavigate(item.id)}
-              className={`py-1 whitespace-nowrap shrink-0 border-b-2 ${
-                isActive
-                  ? 'text-slate-900 border-indigo-700 font-semibold'
-                  : 'text-slate-600 border-transparent'
-              }`}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
+      {(isWorkspaceUnlocked || showWorkspaceNav) && (
+        <nav
+          aria-label="Mobile Primary"
+          className="flex md:hidden items-center gap-5 px-6 py-2 border-t border-[#ECEAF6] overflow-x-auto text-xs font-medium"
+        >
+          {NAV_ITEMS.map((item) => {
+            const isActive = activeView === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onNavigate(item.id)}
+                className={`py-1 whitespace-nowrap shrink-0 border-b-2 ${
+                  isActive
+                    ? 'text-slate-900 border-indigo-700 font-semibold'
+                    : 'text-slate-600 border-transparent'
+                }`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
     </header>
   );
 };
